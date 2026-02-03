@@ -5,6 +5,8 @@ import "katex/dist/katex.min.css";
 import { InlineMath, BlockMath } from "react-katex";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CheckCircle2, Bot, Sparkles } from "lucide-react";
+import { TextShimmer } from "./ui/text-shimmer";
+import { Spinner } from "./ui/spinner";
 
 interface MathOutputProps {
   response: string | null;
@@ -245,14 +247,11 @@ export function MathOutput({ response, modelUsed, isLoading, error }: MathOutput
       <Card ref={outputRef} className="border-blue-200 bg-gradient-to-br from-blue-50 to-indigo-50">
         <CardContent className="pt-6">
           <div className="flex items-center gap-4">
-            <div className="relative">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 animate-pulse"></div>
-              <div className="absolute inset-0 w-10 h-10 rounded-full border-2 border-transparent border-t-blue-300 animate-spin"></div>
-            </div>
+            <Spinner />
             <div className="space-y-2">
-              <p className="font-medium text-zinc-700">
+              <TextShimmer className='text-base' duration={1}>
                 Đang suy nghĩ để giải bài toán...
-              </p>
+              </TextShimmer>
             </div>
           </div>
         </CardContent>
