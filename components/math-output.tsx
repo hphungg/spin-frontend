@@ -15,34 +15,159 @@ interface MathOutputProps {
     error: string | null
 }
 
-// Convert simple math expressions to LaTeX
-function convertToLatex(text: string): string {
-    // Already in LaTeX format
-    if (text.includes("$") || text.includes("\\")) {
+// Enhanced function to convert math expressions to LaTeX
+function convertMathToLatex(text: string): string {
+    // If already contains LaTeX delimiters, return as is
+    if (/\$\$[\s\S]*?\$\$|\$[^$]+?\$|\\\[[\s\S]*?\\\]|\\\(.*?\\\)/.test(text)) {
         return text
     }
 
-    // Check if it looks like a math expression
-    const mathPattern =
-        /^[\s]*[a-zA-Z0-9\s\+\-\*\/\=\^\(\)\[\]\{\}\.\,\<\>\≤\≥\≠]+[\s]*$/
-    if (mathPattern.test(text) && /[=\+\-\*\/\^]/.test(text)) {
-        // Convert common patterns
-        let latex = text
-            .replace(/\^(\d+)/g, "^{$1}") // x^2 -> x^{2}
-            .replace(/\*\*/g, "^") // ** -> ^
-            .replace(/\*/g, " \\cdot ") // * -> \cdot
-            .replace(/sqrt\(([^)]+)\)/g, "\\sqrt{$1}") // sqrt(x) -> \sqrt{x}
-            .replace(/(\d+)\/(\d+)/g, "\\frac{$1}{$2}") // 1/2 -> \frac{1}{2}
+    let result = text
 
-        return `$${latex}$`
+    // Process integral expressions: ∫x^4 dx or ∫(...)dx
+    result = result.replace(
+        /∫([^∫]+?)(?:\s*dx|\s*dy|\s*dt|\s*d[a-z])/g,
+        (_, expr) => `$\\int ${convertExpressionToLatex(expr.trim())} \\, dx$`
+    )
+
+    // Process expressions with = sign that look like equations
+    // Split by text before/after mathematical parts
+    const parts = result.split(/(\s*[=-]\s*)/g)
+    let hasChanges = false
+
+    const processedParts = parts.map((part) => {
+        // Skip connectors
+        if (/^\s*[=-]\s*$/.test(part)) return part
+
+        // Check if part looks mathematical
+        if (isMathExpression(part)) {
+            hasChanges = true
+            return `$${convertExpressionToLatex(part.trim())}$`
+        }
+        return part
+    })
+
+    if (hasChanges) {
+        result = processedParts.join("")
+        // Clean up duplicate $$ that might occur
+        result = result.replace(/\$\s*\$/g, " ")
+        result = result.replace(/\$\$/g, "$")
     }
 
-    return text
+    return result
+}
+
+// Check if a string looks like a math expression
+function isMathExpression(text: string): boolean {
+    const trimmed = text.trim()
+    if (!trimmed) return false
+
+    // Contains mathematical operators or patterns
+    const mathPatterns = [
+        /\^/,                    // Exponent
+        /[a-z]\d+/i,             // Variable with number like x2, C1
+        /\d+\/\d+/,              // Fraction like 1/2
+        /\([^)]+\)/,             // Parentheses with content
+        /\d+x/i,                 // Number with variable
+        /x\^/i,                  // x^ pattern
+        /ln\(/i,                 // Natural log
+        /log\(/i,                // Log
+        /sqrt\(/i,               // Square root
+        /sin\(|cos\(|tan\(/i,    // Trig functions
+        /\d+\s*[+\-*/]\s*\d+/,   // Basic arithmetic
+        /[a-z]\s*[+\-*/]\s*[a-z]/i, // Variables with operators
+    ]
+
+    return mathPatterns.some((pattern) => pattern.test(trimmed))
+}
+
+// Convert a math expression to proper LaTeX
+function convertExpressionToLatex(expr: string): string {
+    let latex = expr
+
+    // Handle integrals first
+    latex = latex.replace(/∫/g, "\\int ")
+
+    // Handle fractions: (a/b) or a/b patterns
+    // Match (num/denom) style
+    latex = latex.replace(/\((\d+)\/(\d+)\)/g, "\\frac{$1}{$2}")
+    // Match simple a/b style (only numbers)
+    latex = latex.replace(/(\d+)\/(\d+)/g, "\\frac{$1}{$2}")
+
+    // Handle exponents: x^4, x^(n-1), (x+1)^2
+    latex = latex.replace(/\^(\([^)]+\))/g, "^{$1}")
+    latex = latex.replace(/\^(\d+)/g, "^{$1}")
+    latex = latex.replace(/\^([a-zA-Z])/g, "^{$1}")
+
+    // Handle common functions
+    latex = latex.replace(/ln\(([^)]+)\)/gi, "\\ln($1)")
+    latex = latex.replace(/log\(([^)]+)\)/gi, "\\log($1)")
+    latex = latex.replace(/sqrt\(([^)]+)\)/gi, "\\sqrt{$1}")
+    latex = latex.replace(/sin\(([^)]+)\)/gi, "\\sin($1)")
+    latex = latex.replace(/cos\(([^)]+)\)/gi, "\\cos($1)")
+    latex = latex.replace(/tan\(([^)]+)\)/gi, "\\tan($1)")
+
+    // Handle multiplication symbol
+    latex = latex.replace(/\*/g, " \\cdot ")
+
+    // Clean up C1, C2, etc. to be subscripts
+    latex = latex.replace(/([C])(\d+)/g, "$1_{$2}")
+
+    return latex
+}
+
+// Process entire text line by line, converting math expressions
+function processText(text: string): string {
+    // If already has LaTeX, don't process
+    if (/\$/.test(text)) {
+        return text
+    }
+
+    let result = text
+
+    // Find and wrap standalone math expressions
+    // Pattern: sequences containing math-like content
+
+    // Handle "Tích phân của x^n là nx^(n-1)" style
+    const integralRulePattern = /(Tích phân của\s+)([^\s]+\s+là\s+[^\s]+)/gi
+    result = result.replace(integralRulePattern, (_, prefix, mathPart) => {
+        const parts = mathPart.split(/\s+là\s+/)
+        if (parts.length === 2) {
+            return `${prefix}$${convertExpressionToLatex(parts[0])}$ là $${convertExpressionToLatex(parts[1])}$`
+        }
+        return prefix + mathPart
+    })
+
+    // Handle function notations like f'(x), g(x), etc.
+    result = result.replace(/([cfg])'?\(([^)]+)\)/g, (match) => {
+        return `$${match}$`
+    })
+
+    // Handle expressions like "x^4 + 1/2x^3 - ln(x) + 7x"
+    // Find sequences that look like polynomial expressions
+    result = result.replace(
+        /([a-z]\^\d+(?:\s*[+\-]\s*(?:\d+\/?\d*)?[a-z]?\^?\d*)+)/gi,
+        (match) => `$${convertExpressionToLatex(match)}$`
+    )
+
+    // Handle standalone expressions with = sign
+    // "∫x^4 dx = (x^5)/5 + C1" style
+    const equationPattern = /(∫[^=]+)\s*=\s*([^,]+)/g
+    result = result.replace(equationPattern, (_, left, right) => {
+        const leftLatex = convertExpressionToLatex(left.replace(/\s*dx\s*$/i, "") + " \\, dx")
+        const rightLatex = convertExpressionToLatex(right.trim())
+        return `$${leftLatex} = ${rightLatex}$`
+    })
+
+    return result
 }
 
 // Parse a single line and extract/render LaTeX
 function parseLine(text: string): React.ReactNode[] {
     const parts: React.ReactNode[] = []
+
+    // First, process the text to convert math expressions
+    const processedText = processText(text)
 
     // Match LaTeX: $$...$$ or $...$ or \[...\] or \(...\)
     const regex =
@@ -52,10 +177,10 @@ function parseLine(text: string): React.ReactNode[] {
     let match
     let key = 0
 
-    while ((match = regex.exec(text)) !== null) {
+    while ((match = regex.exec(processedText)) !== null) {
         if (match.index > lastIndex) {
             parts.push(
-                <span key={key++}>{text.slice(lastIndex, match.index)}</span>,
+                <span key={key++}>{processedText.slice(lastIndex, match.index)}</span>,
             )
         }
 
@@ -86,147 +211,63 @@ function parseLine(text: string): React.ReactNode[] {
         lastIndex = regex.lastIndex
     }
 
-    if (lastIndex < text.length) {
-        parts.push(<span key={key++}>{text.slice(lastIndex)}</span>)
+    if (lastIndex < processedText.length) {
+        parts.push(<span key={key++}>{processedText.slice(lastIndex)}</span>)
     }
 
     return parts
 }
 
-// Parse step header and format nicely
-function parseStepHeader(
-    text: string,
-): { stepNumber: string; title: string } | null {
-    // Match patterns like "## Step 1:", "**Step 1:**", "Step 1:", etc.
-    const patterns = [
-        /^#{1,3}\s*Step\s*(\d+):\s*(.*)$/i,
-        /^\*\*Step\s*(\d+):\*\*\s*(.*)$/i,
-        /^Step\s*(\d+):\s*(.*)$/i,
-        /^Bước\s*(\d+):\s*(.*)$/i,
-        /^#{1,3}\s*Bước\s*(\d+):\s*(.*)$/i,
-    ]
-
-    for (const pattern of patterns) {
-        const match = text.match(pattern)
-        if (match) {
-            return { stepNumber: match[1], title: match[2].trim() }
-        }
-    }
-
-    return null
-}
-
-// Check if line is a final answer
-function isFinalAnswer(text: string): boolean {
-    const patterns = [
-        /the final answer is/i,
-        /đáp án cuối cùng/i,
-        /kết quả cuối cùng/i,
-        /vậy.*?=/i,
-        /kết luận/i,
-    ]
-    return patterns.some((p) => p.test(text))
-}
-
-// Format the complete response into structured steps
+// Format the complete response - simplified without step parsing or final answer box
 function formatResponse(text: string): React.ReactNode {
-    const lines = text.split("\n").filter((line) => line.trim())
+    const lines = text.split("\n")
     const elements: React.ReactNode[] = []
-    let currentStep: {
-        number: string
-        title: string
-        content: React.ReactNode[]
-    } | null = null
     let key = 0
-
-    const flushStep = () => {
-        if (currentStep) {
-            elements.push(
-                <div key={key++} className="step-container mb-6 last:mb-0">
-                    <div className="step-header mb-3 flex items-center gap-3">
-                        <div className="step-number flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-sm font-bold text-white shadow-md">
-                            {currentStep.number}
-                        </div>
-                        <h3 className="step-title text-base font-semibold text-zinc-800">
-                            {currentStep.title}
-                        </h3>
-                    </div>
-                    <div className="step-content ml-11 space-y-2 text-zinc-700">
-                        {currentStep.content}
-                    </div>
-                </div>,
-            )
-        }
-    }
 
     for (const line of lines) {
         const trimmedLine = line.trim()
 
-        // Skip empty lines after ## headers
-        if (!trimmedLine) continue
-
-        // Check if this is a step header
-        const stepHeader = parseStepHeader(trimmedLine)
-        if (stepHeader) {
-            flushStep()
-            currentStep = {
-                number: stepHeader.stepNumber,
-                title: stepHeader.title,
-                content: [],
-            }
+        // Keep empty lines as spacing
+        if (!trimmedLine) {
+            elements.push(<div key={key++} className="h-2" />)
             continue
         }
 
-        // Check if this is a final answer
-        if (isFinalAnswer(trimmedLine)) {
-            flushStep()
-            currentStep = null
-
-            // Extract the answer value if present
-            const converted = convertToLatex(trimmedLine)
+        // Handle headers (## or **)
+        if (trimmedLine.startsWith("##") || trimmedLine.startsWith("**")) {
+            const headerText = trimmedLine
+                .replace(/^#{1,3}\s*/, "")
+                .replace(/^\*\*|\*\*$/g, "")
+                .trim()
             elements.push(
-                <div
-                    key={key++}
-                    className="final-answer mt-6 rounded-xl border-2 border-emerald-200 bg-gradient-to-r from-emerald-50 to-green-50 p-4"
-                >
-                    <div className="mb-2 flex items-center gap-2">
-                        <span className="text-lg">🎯</span>
-                        <span className="font-bold text-emerald-700">
-                            Đáp án
-                        </span>
-                    </div>
-                    <div className="text-lg font-medium text-emerald-800">
-                        {parseLine(converted)}
-                    </div>
+                <h3 key={key++} className="mt-4 mb-2 text-base font-semibold text-zinc-800">
+                    {parseLine(headerText)}
+                </h3>,
+            )
+            continue
+        }
+
+        // Handle list items (- or *)
+        if (trimmedLine.startsWith("-") || (trimmedLine.startsWith("*") && !trimmedLine.startsWith("**"))) {
+            const listText = trimmedLine.replace(/^[-*]\s*/, "").trim()
+            elements.push(
+                <div key={key++} className="mb-1 flex gap-2 text-zinc-700">
+                    <span className="text-zinc-400">•</span>
+                    <span>{parseLine(listText)}</span>
                 </div>,
             )
             continue
         }
 
         // Regular content line
-        const converted = convertToLatex(trimmedLine)
-        const parsed = parseLine(converted)
-
-        if (currentStep) {
-            currentStep.content.push(
-                <div key={currentStep.content.length} className="content-line">
-                    {parsed}
-                </div>,
-            )
-        } else {
-            // Content before any step or between steps
-            elements.push(
-                <div key={key++} className="mb-2 text-zinc-700">
-                    {parsed}
-                </div>,
-            )
-        }
+        elements.push(
+            <div key={key++} className="mb-2 text-zinc-700 leading-relaxed">
+                {parseLine(trimmedLine)}
+            </div>,
+        )
     }
 
-    // Flush any remaining step
-    flushStep()
-
-    return <div className="space-y-2">{elements}</div>
+    return <div className="space-y-1">{elements}</div>
 }
 
 export function MathOutput({
